@@ -30,7 +30,6 @@ contract DepositToken is IERC20 {
         string memory _symbol = IERC20(pool).symbol();
         name = string(abi.encodePacked("Monolith ", _symbol, " Deposit"));
         symbol = string(abi.encodePacked("mo-", _symbol));
-        emit Transfer(address(0), msg.sender, 0);
         return true;
     }
 

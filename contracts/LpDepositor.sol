@@ -69,9 +69,6 @@ contract LpDepositor is
     // user -> Withdraws
     mapping(address => Withdraw) public withdrawable;
 
-    address[] public attachedGauges;
-    address[] public validGauges;
-
     uint256 public stakersSolidShare; // precision is e18
     uint256 public stakersUnclaimedSolid;
 
@@ -169,14 +166,6 @@ contract LpDepositor is
         }
     }
 
-    function attachedGaugesLength() external view returns (uint256) {
-        return attachedGauges.length;
-    }
-
-    function validGaugesLength() external view returns (uint256) {
-        return validGauges.length;
-    }
-
     /**
      * @notice Get pending SOLID rewards earned by `account`
      * @param account Account to query pending rewards for
@@ -238,7 +227,6 @@ contract LpDepositor is
             if (gauge == address(0)) {
                 gauge = solidlyVoter.createGauge(pool);
             }
-            attachedGauges.push(gauge);
             gaugeForPool[pool] = gauge;
             bribeForPool[pool] = solidlyVoter.bribes(gauge);
             tokenForPool[pool] = _deployDepositToken(pool);
@@ -488,36 +476,32 @@ contract LpDepositor is
             );
     }
 
-    function detachGauges(uint256 fromIndex, uint256 toIndex) external {
+    function detachGauges(address[] memory gaugeAddresses) external {
         require(msg.sender == splitter, "Not Splitter");
 
-        uint256 _validGaugesLength = 0;
-        address[] memory _validGauges = new address[](attachedGauges.length);
         uint256 amount;
-        for (uint256 i = fromIndex; i < toIndex; i++) {
-            // max withdraw is 1e18 token to avoid large asset transfer
-            amount = IGauge(attachedGauges[i]).balanceOf(address(this));
+        for (uint256 i = 0; i < gaugeAddresses.length; i++) {
+            // max withdraw is 1e16 token to avoid large asset transfer
+            amount = IGauge(gaugeAddresses[i]).balanceOf(address(this));
             if (amount > 0) {
-                if (amount > 1e18) amount = 1e18;
-                IGauge(attachedGauges[i]).withdrawToken(amount, tokenID);
-                _validGauges[_validGaugesLength] = attachedGauges[i];
-                _validGaugesLength++;
+                if (amount > 1e16) amount = 1e16;
+                IGauge(gaugeAddresses[i]).withdrawToken(amount, tokenID);
+                IGauge(gaugeAddresses[i]).deposit(amount, 0);
             }
         }
-
-        assembly {
-            mstore(_validGauges, _validGaugesLength)
-        }
-
-        validGauges = _validGauges;
     }
 
-    function reattachGauges(uint256 fromIndex, uint256 toIndex) external {
+    function reattachGauges(address[] memory gaugeAddresses) external {
         require(msg.sender == splitter, "Not Splitter");
 
-        uint256 amount = 1e18;
-        for (uint256 i = fromIndex; i < toIndex; i++) {
-            IGauge(validGauges[i]).deposit(amount, tokenID);
+        uint256 amount = 1e16;
+        for (uint256 i = 0; i < gaugeAddresses.length; i++) {
+            amount = IGauge(gaugeAddresses[i]).balanceOf(address(this));
+            if (amount > 0) {
+                if (amount > 1e16) amount = 1e16;
+                IGauge(gaugeAddresses[i]).withdrawToken(amount, 0);
+                IGauge(gaugeAddresses[i]).deposit(amount, tokenID);
+            }
         }
     }
 
@@ -552,7 +536,7 @@ contract LpDepositor is
         address gauge,
         uint256 balance,
         uint256 total
-    ) internal {
+    ) internal whenNotPaused {
         uint256 integral = rewardIntegral[pool];
         if (total > 0) {
             uint256 delta = SOLID.balanceOf(address(this));

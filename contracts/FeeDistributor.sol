@@ -70,15 +70,17 @@ contract FeeDistributor is Initializable, OwnableUpgradeable {
         return feeTokens.length;
     }
 
+    function getFeeTokens() external view returns (address[] memory) {
+        return feeTokens;
+    }
+
     /**
         @notice Deposit protocol fees into the contract, to be distributed to lockers
         @dev Caller must have given approval for this contract to transfer `_token`
         @param _token Token being deposited
         @param _amount Amount of the token to deposit
      */
-    function depositFee(address _token, uint256 _amount)
-        external
-    {
+    function depositFee(address _token, uint256 _amount) external {
         if (_amount > 0) {
             if (!seenFees[_token]) {
                 seenFees[_token] = true;

@@ -5,6 +5,7 @@ import "./interfaces/solidly/IVeDist.sol";
 import "./interfaces/monolith/ILpDepositor.sol";
 import "./interfaces/monolith/IFeeDistributor.sol";
 import "./interfaces/monolith/IMonolithVoter.sol";
+import "./interfaces/monolith/ISplitter.sol";
 
 import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20BurnableUpgradeable.sol";
@@ -29,8 +30,9 @@ contract VeDepositor is
 
     // monolith contracts
     ILpDepositor public lpDepositor;
-    IMonolithVoter public monolith;
+    IMonolithVoter public monolithVoter;
     IFeeDistributor public feeDistributor;
+    ISplitter public splitter;
 
     uint256 public tokenID;
     uint256 public unlockTime;
@@ -57,17 +59,18 @@ contract VeDepositor is
 
         // approve vesting escrow to transfer SOLID (for adding to lock)
         _token.approve(address(_votingEscrow), type(uint256).max);
-        emit Transfer(address(0), msg.sender, 0);
     }
 
     function setAddresses(
         ILpDepositor _lpDepositor,
         IMonolithVoter _monolithVoter,
-        IFeeDistributor _feeDistributor
+        IFeeDistributor _feeDistributor,
+        ISplitter _splitter
     ) external onlyOwner {
         lpDepositor = _lpDepositor;
-        monolith = _monolithVoter;
+        monolithVoter = _monolithVoter;
         feeDistributor = _feeDistributor;
+        splitter = _splitter;
 
         // approve fee distributor to transfer this token (for distributing moSolid)
         _approve(address(this), address(_feeDistributor), type(uint256).max);
@@ -91,7 +94,7 @@ contract VeDepositor is
         if (tokenID == 0) {
             tokenID = _tokenID;
             unlockTime = end;
-            monolith.setTokenID(tokenID);
+            monolithVoter.setTokenID(tokenID);
             votingEscrow.safeTransferFrom(
                 address(this),
                 address(lpDepositor),
@@ -181,7 +184,7 @@ contract VeDepositor is
         // to the known total supply, this is necessary because anyone can call
         // `veDistributor.claim` for any NFT
         (uint256 amount, ) = votingEscrow.locked(tokenID);
-        amount -= totalSupply();
+        amount -= totalSupply() + splitter.totalSplitRequested();
 
         if (amount > 0) {
             _mint(address(this), amount);

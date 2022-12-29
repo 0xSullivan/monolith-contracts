@@ -135,6 +135,14 @@ contract MonolithVoter is Initializable, OwnableUpgradeable {
         return votes;
     }
 
+    function getCurrentUserVotes(address _user)
+        external
+        view
+        returns (Vote[] memory votes)
+    {
+        return userPoolVotes[_user][getWeek()];
+    }
+
     /**
         @notice Get an account's unused vote weight for for the current week
         @param _user Address to query

@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.16;
 
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
+import "./interfaces/solidly/IGauge.sol";
 import "./interfaces/monolith/ILpDepositor.sol";
 import "./interfaces/monolith/IVeDepositor.sol";
 
@@ -23,7 +25,12 @@ import "./interfaces/solidly/IBaseV1Minter.sol";
  * and that the anti-bricking logics are all already processed by voterProxy
  */
 
-contract Splitter is IERC721Receiver, Initializable, OwnableUpgradeable {
+contract Splitter is
+    IERC721Receiver,
+    Initializable,
+    OwnableUpgradeable,
+    PausableUpgradeable
+{
     using SafeMath for uint256;
 
     uint256 public constant workTimeLimit = 3600;
@@ -40,7 +47,6 @@ contract Splitter is IERC721Receiver, Initializable, OwnableUpgradeable {
     IBaseV1Minter public minter;
 
     ILpDepositor public lpDepositor;
-
     IVeDepositor public moSolid;
 
     // Tips
@@ -88,10 +94,12 @@ contract Splitter is IERC721Receiver, Initializable, OwnableUpgradeable {
     function initialize(
         address _votingEscrow,
         address _minterAddress,
+        address _solidlyVoter,
         uint256 _minTipPerGauge
     ) public initializer {
         __Ownable_init();
         votingEscrow = IVotingEscrow(_votingEscrow);
+        solidlyVoter = IBaseV1Voter(_solidlyVoter);
         minter = IBaseV1Minter(_minterAddress);
 
         // Set presets
@@ -120,19 +128,26 @@ contract Splitter is IERC721Receiver, Initializable, OwnableUpgradeable {
         return address(this).balance;
     }
 
+    function minTip() public view returns (uint256) {
+        return votingEscrow.attachments(lpDepositor.tokenID()) * minTipPerGauge;
+    }
+
     /****************************************
      *            User Methods
      ****************************************/
-    function requestSplit(uint256 splitAmount) external payable onlyStage(0) {
+    function requestSplit(uint256 splitAmount)
+        external
+        payable
+        onlyStage(0)
+        whenNotPaused
+    {
         require(splitAmount > 0, "Cannot split 0");
         require(
             balanceOf[msg.sender] == 0 ||
                 lastBurnTimestamp[msg.sender] > lastSplitTimestamp,
             "Claim available split first"
         );
-        uint256 gaugesLength = votingEscrow.attachments(lpDepositor.tokenID());
-        uint256 minTip = gaugesLength * minTipPerGauge;
-        require(msg.value >= minTip, "Not enough tips");
+        require(msg.value >= minTip(), "Not enough tips");
 
         // Burn moSolid
         moSolid.burnFrom(msg.sender, splitAmount);
@@ -147,7 +162,12 @@ contract Splitter is IERC721Receiver, Initializable, OwnableUpgradeable {
         emit RequestBurn(msg.sender, splitAmount);
     }
 
-    function claimSplitVeNft() external lock returns (uint256 tokenId) {
+    function claimSplitVeNft()
+        external
+        lock
+        whenNotPaused
+        returns (uint256 tokenId)
+    {
         require(
             lastBurnTimestamp[msg.sender] < lastSplitTimestamp,
             "Split not processed"
@@ -177,7 +197,7 @@ contract Splitter is IERC721Receiver, Initializable, OwnableUpgradeable {
      *            Worker Methods
      ****************************************/
 
-    function startWork() external payable lock onlyStage(0) {
+    function startWork() external payable lock onlyStage(0) whenNotPaused {
         uint256 activePeriod = minter.active_period();
         require(activePeriod > lastSplitTimestamp, "Not new epoch");
         require(
@@ -207,12 +227,31 @@ contract Splitter is IERC721Receiver, Initializable, OwnableUpgradeable {
         emit WorkStarted(msg.sender, block.timestamp + workTimeLimit);
     }
 
-    function detachGauges(uint256 fromIndex, uint256 toIndex)
+    function detachGauges(address[] memory gaugeAddresses)
         external
         onlyStage(1)
     {
-        reattachGaugeLength += toIndex - fromIndex;
-        lpDepositor.detachGauges(fromIndex, toIndex);
+        uint256 _reattachGaugeLength = 0;
+        address[] memory validGauges = new address[](gaugeAddresses.length);
+
+        for (uint256 i = 0; i < gaugeAddresses.length; i++) {
+            require(solidlyVoter.isGauge(gaugeAddresses[i]), "Invalid gauge");
+
+            if (IGauge(gaugeAddresses[i]).tokenIds(address(lpDepositor)) > 0) {
+                reattachGauge[gaugeAddresses[i]] = true;
+                validGauges[_reattachGaugeLength] = gaugeAddresses[i];
+                _reattachGaugeLength++;
+            }
+        }
+
+        // Update array length
+        assembly {
+            mstore(validGauges, _reattachGaugeLength)
+        }
+        reattachGaugeLength += _reattachGaugeLength;
+
+        // Detach gauges
+        lpDepositor.detachGauges(validGauges);
     }
 
     function resetVotes() external onlyStage(1) {
@@ -265,12 +304,29 @@ contract Splitter is IERC721Receiver, Initializable, OwnableUpgradeable {
         workingStage = 2;
     }
 
-    function reattachGauges(uint256 fromIndex, uint256 toIndex)
+    function reattachGauges(address[] memory gaugeAddresses)
         external
         onlyStage(2)
     {
-        reattachGaugeLength -= toIndex - fromIndex;
-        lpDepositor.rettachGauges(fromIndex, toIndex);
+        // Process reattachGauge and reattachGaugeLength
+        uint256 _reattachedGaugeLength = 0;
+        address[] memory validGauges = new address[](gaugeAddresses.length);
+
+        for (uint256 i = 0; i < gaugeAddresses.length; i++) {
+            if (reattachGauge[gaugeAddresses[i]]) {
+                reattachGauge[gaugeAddresses[i]] = false;
+                validGauges[_reattachedGaugeLength] = gaugeAddresses[i];
+                _reattachedGaugeLength++;
+            }
+        }
+        // Update array length
+        assembly {
+            mstore(validGauges, _reattachedGaugeLength)
+        }
+
+        reattachGaugeLength -= _reattachedGaugeLength;
+
+        lpDepositor.reattachGauges(validGauges);
     }
 
     function claimTips() external lock onlyStage(2) {
@@ -298,5 +354,17 @@ contract Splitter is IERC721Receiver, Initializable, OwnableUpgradeable {
     ) external override returns (bytes4) {
         require(_unlocked == 2, "No inbound ERC721s");
         return IERC721Receiver.onERC721Received.selector;
+    }
+
+    /****************************************
+     *            Restricted Methods
+     ****************************************/
+
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
     }
 }

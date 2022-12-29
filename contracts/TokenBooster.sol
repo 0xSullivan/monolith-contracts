@@ -193,6 +193,7 @@ contract TokenBooster is Initializable, OwnableUpgradeable {
 
         uint256 remain = tokenBalanceOf[msg.sender] - _amount;
         // set user balance to 0 to avoid adding extra balance in _stake
+        totalTokenBalance -= tokenBalanceOf[msg.sender];
         tokenBalanceOf[msg.sender] = 0;
         if (remain > 0) {
             // stake remaining amount
@@ -217,15 +218,5 @@ contract TokenBooster is Initializable, OwnableUpgradeable {
             weightBeforeUnstake +
             weightAfterUnstake;
         weeklyTotalWeight[week] += weeklyWeightOf[msg.sender][week];
-
-        console.log("passed seconds", passedSeconds);
-        console.log("remaning seconds", WEEK - passedSeconds);
-        console.log(
-            "user stake",
-            weeklyWeightOf[msg.sender][week],
-            weightBeforeUnstake,
-            weightAfterUnstake
-        );
-        console.log("total stake", weeklyTotalWeight[week]);
     }
 }

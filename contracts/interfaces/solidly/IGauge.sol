@@ -16,7 +16,5 @@ interface IGauge {
         view
         returns (uint256);
 
-    function attachedGaugesLenght() external returns (uint256);
-
-    function validGaugesLenght() external returns (uint256);
+    function tokenIds(address account) external view returns(uint256);
 }
