@@ -18,6 +18,9 @@ contract Ludicrous is
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant UNPAUSER_ROLE = keccak256("UNPAUSER_ROLE");
     bytes32 public constant SETTER_ROLE = keccak256("SETTER_ROLE");
+    bytes32 public constant REWARDER_ROLE = keccak256("REWARDER_ROLE");
+
+    uint256 private constant PRECISION = 1e18;
 
     struct UserInfo {
         uint256 amount; // amount of token user provided
@@ -27,8 +30,7 @@ contract Ludicrous is
     struct RewardInfo {
         uint256 accRewardPerShare;
         uint256 lastRewardTimestamp;
-        uint256 tokenPerPeriod;
-        uint256 period;
+        uint256 tokenPerSecond;
     }
 
     RewardInfo public rewardInfo; // poolInfo
@@ -40,18 +42,18 @@ contract Ludicrous is
 
     IERC20Upgradeable public rewardToken;
 
-    uint256 private constant PRECISION = 1e18;
+    uint256 public deadline;
 
     event UpdateRewardInfo(uint256 accRewardPerShare);
     event Deposit(uint256 amount, address to);
     event Withdraw(address user, uint256 amount);
     event Harvest(address user, uint256 pendingReward);
-    event SetRewardInfo(uint256 tokenPerPeriod, uint256 period);
 
     function initialize(
         address admin,
         address setter,
-        address pauser
+        address pauser,
+        address rewarder
     ) public initializer {
         __Pausable_init();
         __AccessControlEnumerable_init();
@@ -59,14 +61,16 @@ contract Ludicrous is
         rewardInfo = RewardInfo({
             accRewardPerShare: 0,
             lastRewardTimestamp: block.timestamp,
-            tokenPerPeriod: 0,
-            period: 1
+            tokenPerSecond: 0
         });
 
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(UNPAUSER_ROLE, admin);
         _grantRole(SETTER_ROLE, setter);
         _grantRole(PAUSER_ROLE, pauser);
+        _grantRole(REWARDER_ROLE, rewarder);
+
+        _pause();
     }
 
     function setAddresses(address _token, address _rewardToken)
@@ -77,14 +81,17 @@ contract Ludicrous is
         rewardToken = IERC20Upgradeable(_rewardToken);
     }
 
-    function setRewardInfo(uint256 _tokenPerPeriod, uint256 _period)
-        public
-        onlyRole(SETTER_ROLE)
+    function depositReward(uint256 amount, uint256 _deadline)
+        external
+        onlyRole(REWARDER_ROLE)
     {
-        updateRewardInfo();
-        rewardInfo.tokenPerPeriod = _tokenPerPeriod;
-        rewardInfo.period = _period;
-        emit SetRewardInfo(_tokenPerPeriod, _period);
+        require(_deadline > block.timestamp, "DEADLINE_EXPIRED");
+
+        rewardToken.safeTransferFrom(msg.sender, address(this), amount);
+        deadline = _deadline;
+        amount = rewardToken.balanceOf(address(this));
+
+        rewardInfo.tokenPerSecond = amount / (deadline - block.timestamp);
     }
 
     function pause() external onlyRole(PAUSER_ROLE) {
@@ -98,10 +105,16 @@ contract Ludicrous is
     function getCurrentAccRewardPerShare() public view returns (uint256) {
         RewardInfo memory tokenRewardInfo = rewardInfo;
         uint256 tokenTotalSupply = token.totalSupply();
-        uint256 periods = (block.timestamp -
-            tokenRewardInfo.lastRewardTimestamp) / tokenRewardInfo.period;
-        if (periods > 0 && tokenTotalSupply != 0) {
-            uint256 reward = periods * tokenRewardInfo.tokenPerPeriod;
+
+        uint256 delta;
+        if (block.timestamp < deadline) {
+            delta = block.timestamp - tokenRewardInfo.lastRewardTimestamp;
+        } else {
+            delta = 0;
+        }
+
+        if (tokenTotalSupply != 0) {
+            uint256 reward = delta * tokenRewardInfo.tokenPerSecond;
             tokenRewardInfo.accRewardPerShare +=
                 (reward * PRECISION) /
                 tokenTotalSupply;
@@ -123,9 +136,7 @@ contract Ludicrous is
     function updateRewardInfo() public returns (RewardInfo memory) {
         RewardInfo storage tokenRewardInfo = rewardInfo;
         tokenRewardInfo.accRewardPerShare = getCurrentAccRewardPerShare();
-        uint256 periods = (block.timestamp -
-            tokenRewardInfo.lastRewardTimestamp) / tokenRewardInfo.period;
-        tokenRewardInfo.lastRewardTimestamp += periods * tokenRewardInfo.period;
+        tokenRewardInfo.lastRewardTimestamp = block.timestamp;
         emit UpdateRewardInfo(rewardInfo.accRewardPerShare);
         return rewardInfo;
     }

@@ -12,7 +12,7 @@ import "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgrad
 
 // todo custom deposit instead of transfer moSOLID => override totalAssets to avoid reading from contract balance
 
-contract ElmoSOLID is
+contract elmoSOLID is
     ERC4626Upgradeable,
     PausableUpgradeable,
     AccessControlEnumerableUpgradeable
@@ -37,6 +37,8 @@ contract ElmoSOLID is
         _grantRole(UNPAUSER_ROLE, admin);
         _grantRole(SETTER_ROLE, setter);
         _grantRole(PAUSER_ROLE, pauser);
+
+        _pause();
     }
 
     function setAddresses(address _ludicrous) external onlyRole(SETTER_ROLE) {
