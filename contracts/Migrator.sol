@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT
 pragma solidity 0.8.16;
 
 import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "@openzeppelin/contracts-upgradeable/interfaces/IERC20Upgradeable.sol";
@@ -11,7 +11,7 @@ import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeab
 contract Migrator is
     Initializable,
     PausableUpgradeable,
-    AccessControlUpgradeable
+    AccessControlEnumerableUpgradeable
 {
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
@@ -36,7 +36,7 @@ contract Migrator is
         address _admin
     ) public initializer {
         __Pausable_init();
-        __AccessControl_init();
+        __AccessControlEnumerable_init();
 
         _grantRole(SETTER_ROLE, _setter);
         _grantRole(DEFAULT_ADMIN_ROLE, _admin);
@@ -74,7 +74,7 @@ contract Migrator is
         if (claimableAmount > 0) {
             claimedAmount[msg.sender] += claimableAmount;
             totalClaimedAmount += claimableAmount;
-            moSOLID.transfer(msg.sender, claimableAmount);
+            moSOLID.safeTransfer(msg.sender, claimableAmount);
 
             emit ClaimMoSOLID(msg.sender, amount, claimableAmount);
         } else {

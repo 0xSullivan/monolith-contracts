@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 pragma solidity 0.8.16;
 
 interface IVotingEscrow {
@@ -18,27 +19,27 @@ interface IVotingEscrow {
 
     function setApprovalForAll(address operator, bool approved) external;
 
-    function transferFrom(
-        address from,
-        address to,
-        uint256 tokenID
-    ) external;
-
     function safeTransferFrom(
         address from,
         address to,
         uint256 tokenId
     ) external;
 
-    function ownerOf(uint256 tokenId) external view returns (address);
-
     function balanceOfNFT(uint256 tokenId) external view returns (uint256);
-
-    function isApprovedOrOwner(address, uint256) external view returns (bool);
 
     function split(uint256 from, uint256 amount) external returns (uint256);
 
     function attachments(uint256 tokenId) external view returns (uint256);
 
     function voted(uint256 tokenId) external view returns (bool isVoted);
+
+    function ownerOf(uint256 tokenId) external view returns (address);
+
+    // function isApprovedOrOwner(address, uint256) external view returns (bool);
+
+    // function transferFrom(
+    //     address from,
+    //     address to,
+    //     uint256 tokenID
+    // ) external;
 }

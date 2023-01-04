@@ -1,27 +1,28 @@
+// SPDX-License-Identifier: MIT
 pragma solidity 0.8.16;
 
 import "./interfaces/solidly/IVotingEscrow.sol";
 import "./interfaces/solidly/IVeDist.sol";
-import "./interfaces/monolith/ILpDepositor.sol";
-import "./interfaces/monolith/IFeeDistributor.sol";
-import "./interfaces/monolith/IMonolithVoter.sol";
-import "./interfaces/monolith/ISplitter.sol";
 
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20BurnableUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
-
-import "hardhat/console.sol";
 
 contract VeDepositor is
     Initializable,
     ERC20Upgradeable,
     ERC20BurnableUpgradeable,
-    OwnableUpgradeable
+    PausableUpgradeable,
+    AccessControlEnumerableUpgradeable
 {
     using SafeERC20Upgradeable for IERC20Upgradeable;
+
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+    bytes32 public constant UNPAUSER_ROLE = keccak256("UNPAUSER_ROLE");
+    bytes32 public constant SETTER_ROLE = keccak256("SETTER_ROLE");
 
     // Solidly contracts
     IERC20Upgradeable public token;
@@ -29,16 +30,12 @@ contract VeDepositor is
     IVeDist public veDistributor;
 
     // monolith contracts
-    ILpDepositor public lpDepositor;
-    IMonolithVoter public monolithVoter;
-    IFeeDistributor public feeDistributor;
-    ISplitter public splitter;
+    address public lpDepositor;
 
     uint256 public tokenID;
     uint256 public unlockTime;
 
-    // uint256 public constant WEEK = 1 weeks;
-    uint256 public constant WEEK = 24 * 60 * 60; // for arbitrum test
+    uint256 public constant WEEK = 1 weeks;
     uint256 public constant MAX_LOCK_TIME = 4 * 52 * WEEK;
 
     event ClaimedFromVeDistributor(address indexed user, uint256 amount);
@@ -48,9 +45,13 @@ contract VeDepositor is
     function initialize(
         IERC20Upgradeable _token,
         IVotingEscrow _votingEscrow,
-        IVeDist _veDist
+        IVeDist _veDist,
+        address admin,
+        address pauser,
+        address setter
     ) public initializer {
-        __Ownable_init();
+        __Pausable_init();
+        __AccessControlEnumerable_init();
         __ERC20_init("moSOLID: Tokenized veSOLID", "moSOLID");
 
         token = _token;
@@ -59,21 +60,23 @@ contract VeDepositor is
 
         // approve vesting escrow to transfer SOLID (for adding to lock)
         _token.approve(address(_votingEscrow), type(uint256).max);
+
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(UNPAUSER_ROLE, admin);
+        _grantRole(PAUSER_ROLE, pauser);
+        _grantRole(SETTER_ROLE, setter);
     }
 
-    function setAddresses(
-        ILpDepositor _lpDepositor,
-        IMonolithVoter _monolithVoter,
-        IFeeDistributor _feeDistributor,
-        ISplitter _splitter
-    ) external onlyOwner {
+    function setAddresses(address _lpDepositor) external onlyRole(SETTER_ROLE) {
         lpDepositor = _lpDepositor;
-        monolithVoter = _monolithVoter;
-        feeDistributor = _feeDistributor;
-        splitter = _splitter;
+    }
 
-        // approve fee distributor to transfer this token (for distributing moSolid)
-        _approve(address(this), address(_feeDistributor), type(uint256).max);
+    function pause() external onlyRole(PAUSER_ROLE) {
+        _pause();
+    }
+
+    function unpause() external onlyRole(UNPAUSER_ROLE) {
+        _unpause();
     }
 
     function onERC721Received(
@@ -81,7 +84,7 @@ contract VeDepositor is
         address _from,
         uint256 _tokenID,
         bytes calldata
-    ) external returns (bytes4) {
+    ) external whenNotPaused returns (bytes4) {
         require(
             msg.sender == address(votingEscrow),
             "Can only receive veSOLID NFTs"
@@ -94,12 +97,7 @@ contract VeDepositor is
         if (tokenID == 0) {
             tokenID = _tokenID;
             unlockTime = end;
-            monolithVoter.setTokenID(tokenID);
-            votingEscrow.safeTransferFrom(
-                address(this),
-                address(lpDepositor),
-                _tokenID
-            );
+            votingEscrow.safeTransferFrom(address(this), lpDepositor, _tokenID);
         } else {
             votingEscrow.merge(_tokenID, tokenID);
             if (end > unlockTime) unlockTime = end;
@@ -124,10 +122,10 @@ contract VeDepositor is
         @param _tokenID ID of the NFT to merge
         @return bool success
      */
-    function merge(uint256 _tokenID) external returns (bool) {
-        require(tokenID != _tokenID);
+    function merge(uint256 _tokenID) whenNotPaused external returns (bool) {
+        require(tokenID != _tokenID, "MONOLITH TOKEN ID");
         (uint256 amount, uint256 end) = votingEscrow.locked(_tokenID);
-        require(amount > 0);
+        require(amount > 0, "ZERO Amount");
 
         votingEscrow.merge(_tokenID, tokenID);
         if (end > unlockTime) unlockTime = end;
@@ -144,10 +142,10 @@ contract VeDepositor is
         @param _amount Amount of SOLID to deposit
         @return bool success
      */
-    function depositTokens(uint256 _amount) external returns (bool) {
+    function depositTokens(uint256 _amount) whenNotPaused external returns (bool) {
         require(tokenID != 0, "First deposit must be NFT");
 
-        token.transferFrom(msg.sender, address(this), _amount);
+        token.safeTransferFrom(msg.sender, address(this), _amount);
         votingEscrow.increase_amount(tokenID, _amount);
         _mint(msg.sender, _amount);
         extendLockTime();
@@ -177,19 +175,17 @@ contract VeDepositor is
              then sent to `FeeDistributor` and streamed to moSolid stakers starting
              at the beginning of the following epoch week.
      */
-    function claimFromVeDistributor() external returns (bool) {
+    function claimFromVeDistributor() whenNotPaused external returns (bool) {
         veDistributor.claim(tokenID);
 
         // calculate the amount by comparing the change in the locked balance
         // to the known total supply, this is necessary because anyone can call
         // `veDistributor.claim` for any NFT
         (uint256 amount, ) = votingEscrow.locked(tokenID);
-        amount -= totalSupply() + splitter.totalSplitRequested();
+        amount -= totalSupply();
 
         if (amount > 0) {
             _mint(address(this), amount);
-            feeDistributor.depositFee(address(this), balanceOf(address(this)));
-            emit ClaimedFromVeDistributor(address(this), amount);
         }
 
         return true;
