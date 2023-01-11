@@ -87,9 +87,19 @@ contract Ludicrous is
     {
         require(_deadline > block.timestamp, "DEADLINE_EXPIRED");
 
+        updateRewardInfo();
+
         rewardToken.safeTransferFrom(msg.sender, address(this), amount);
+
+        uint256 remainingAmount;
+        if (block.timestamp < deadline) {
+            remainingAmount =
+                (deadline - block.timestamp) *
+                rewardInfo.tokenPerSecond;
+        }
+
         deadline = _deadline;
-        amount = rewardToken.balanceOf(address(this));
+        amount += remainingAmount;
 
         rewardInfo.tokenPerSecond = amount / (deadline - block.timestamp);
     }

@@ -29,7 +29,7 @@ contract elmoSOLID is
         address setter,
         address pauser
     ) public initializer {
-        __ERC4626_init(_moSOLID, "Elmo SOLID", "elmoSOLID");
+        __ERC4626_init(_moSOLID, "elmo SOLID", "elmoSOLID");
         __Pausable_init();
         __AccessControlEnumerable_init();
 
@@ -68,7 +68,7 @@ contract elmoSOLID is
         address receiver,
         uint256 assets,
         uint256 shares
-    ) internal virtual override {
+    ) internal virtual override whenNotPaused {
         super._deposit(caller, receiver, assets, shares);
         ludicrous.deposit(shares, receiver);
     }
@@ -82,5 +82,15 @@ contract elmoSOLID is
     ) internal virtual override whenNotPaused {
         super._withdraw(caller, receiver, owner, assets, shares);
         ludicrous.withdraw(owner, shares);
+    }
+
+    function name()
+        public
+        view
+        virtual
+        override(ERC20Upgradeable, IERC20MetadataUpgradeable)
+        returns (string memory)
+    {
+        return "elmo SOLID";
     }
 }

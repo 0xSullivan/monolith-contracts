@@ -6,6 +6,10 @@ interface IBaseV1Voter {
 
     function gauges(address pool) external view returns (address gauge);
 
+    function feeDists(address pool) external view returns (address feeDist);
+
+    function generalFees() external view returns (address generalFees);
+
     function poolForGauge(address gauge) external view returns (address pool);
 
     function createGauge(address pool) external returns (address);
@@ -25,4 +29,5 @@ interface IBaseV1Voter {
     function isWhitelisted(address pool) external view returns (bool);
 
     function isGauge(address gaugeAddress) external view returns (bool);
+
 }

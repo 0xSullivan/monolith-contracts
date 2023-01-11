@@ -37,6 +37,8 @@ contract VeDepositor is
 
     uint256 public constant WEEK = 1 weeks;
     uint256 public constant MAX_LOCK_TIME = 4 * 52 * WEEK;
+    uint256 public votingWindow;
+    uint256 public mintDeadline;
 
     event ClaimedFromVeDistributor(address indexed user, uint256 amount);
     event Merged(address indexed user, uint256 tokenID, uint256 amount);
@@ -69,6 +71,13 @@ contract VeDepositor is
 
     function setAddresses(address _lpDepositor) external onlyRole(SETTER_ROLE) {
         lpDepositor = _lpDepositor;
+    }
+
+    function setVotingWindow(uint256 _votingWindow)
+        external
+        onlyRole(SETTER_ROLE)
+    {
+        votingWindow = _votingWindow;
     }
 
     function pause() external onlyRole(PAUSER_ROLE) {
@@ -122,7 +131,7 @@ contract VeDepositor is
         @param _tokenID ID of the NFT to merge
         @return bool success
      */
-    function merge(uint256 _tokenID) whenNotPaused external returns (bool) {
+    function merge(uint256 _tokenID) external whenNotPaused returns (bool) {
         require(tokenID != _tokenID, "MONOLITH TOKEN ID");
         (uint256 amount, uint256 end) = votingEscrow.locked(_tokenID);
         require(amount > 0, "ZERO Amount");
@@ -142,7 +151,11 @@ contract VeDepositor is
         @param _amount Amount of SOLID to deposit
         @return bool success
      */
-    function depositTokens(uint256 _amount) whenNotPaused external returns (bool) {
+    function depositTokens(uint256 _amount)
+        external
+        whenNotPaused
+        returns (bool)
+    {
         require(tokenID != 0, "First deposit must be NFT");
 
         token.safeTransferFrom(msg.sender, address(this), _amount);
@@ -168,14 +181,21 @@ contract VeDepositor is
         }
     }
 
-    /**
-        @notice Claim veSOLID received via ve(3,3)
-        @dev This function is unguarded, anyone can call to claim at any time.
-             The new veSOLID is represented by newly minted moSolid, which is
-             then sent to `FeeDistributor` and streamed to moSolid stakers starting
-             at the beginning of the following epoch week.
-     */
-    function claimFromVeDistributor() whenNotPaused external returns (bool) {
+    function _mint(address account, uint256 amount)
+        internal
+        virtual
+        override
+        beforeMintDeadline
+    {
+        super._mint(account, amount);
+    }
+
+    function claimRebase(address to)
+        external
+        whenNotPaused
+        onlyRole(DEFAULT_ADMIN_ROLE)
+        returns (bool)
+    {
         veDistributor.claim(tokenID);
 
         // calculate the amount by comparing the change in the locked balance
@@ -185,9 +205,18 @@ contract VeDepositor is
         amount -= totalSupply();
 
         if (amount > 0) {
-            _mint(address(this), amount);
+            _mint(to, amount);
         }
 
         return true;
+    }
+
+    function updateMintDeadline() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        mintDeadline = (block.timestamp / WEEK) * WEEK + WEEK - votingWindow;
+    }
+
+    modifier beforeMintDeadline() {
+        require(block.timestamp < mintDeadline, "Paused due to voting");
+        _;
     }
 }

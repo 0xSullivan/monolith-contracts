@@ -4,7 +4,7 @@ pragma solidity ^0.8.16;
 import "../interfaces/solidly/IBribe.sol";
 import "../interfaces/IERC20.sol";
 
-contract MockBribe is IBribe {
+contract MockBribe {
     uint256 public rewardAmount = 100e18;
 
     function setRewardAmount(uint256 _rewardAmount) external {
