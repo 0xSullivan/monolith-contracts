@@ -21,4 +21,11 @@ interface ILpDepositor {
         uint256 amount
     ) external returns (bool);
 
+    function votingWindow() external returns (uint256);
+
+    function enterSplitMode(uint256 workTimeLimit) external;
+
+    function detachGauges(address[] memory gaugeAddresses) external;
+
+    function reattachGauges(address[] memory gaugeAddresses) external;
 }

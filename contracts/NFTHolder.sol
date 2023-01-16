@@ -60,6 +60,10 @@ contract NFTHolder is
     uint256 public platformFee; // e.g. 1e17 for 10%
     address public platformFeeReceiver;
 
+    uint256 public votingWindow;
+    uint256 public splitDeadline;
+    address public splitter;
+
     event Deposited(address indexed user, address indexed pool, uint256 amount);
     event Withdrawn(address indexed user, address indexed pool, uint256 amount);
     event TransferDeposit(
@@ -80,6 +84,7 @@ contract NFTHolder is
         address operator
     ) public initializer {
         __Pausable_init();
+        __ReentrancyGuard_init();
         __AccessControlEnumerable_init();
 
         votingEscrow = _votingEscrow;
@@ -130,6 +135,7 @@ contract NFTHolder is
     {
         require(tokenID != 0, "Must lock SOLID first");
         require(amount > 0, "Cannot deposit zero");
+        require(block.timestamp > splitDeadline, "Split is in action");
 
         address gauge = gaugeForPool[pool];
 
@@ -268,7 +274,8 @@ contract NFTHolder is
         address _moSolid,
         address _depositTokenImplementation,
         address _multiRewarder,
-        address _platformFeeReceiver
+        address _platformFeeReceiver,
+        address _splitter
     ) external onlyRole(SETTER_ROLE) {
         if (_moSolid != address(0)) {
             moSolid = _moSolid;
@@ -285,6 +292,11 @@ contract NFTHolder is
 
         if (_platformFeeReceiver != address(0)) {
             platformFeeReceiver = _platformFeeReceiver;
+        }
+
+        if (_splitter != address(0)) {
+            splitter = _splitter;
+            votingEscrow.setApprovalForAll(_splitter, true); // for split
         }
     }
 
@@ -303,6 +315,18 @@ contract NFTHolder is
         for (uint8 i = 0; i < rewardTokens.length; i++) {
             isRewardToken[rewardTokens[i]] = status;
         }
+    }
+
+    function setVotingWindow(uint256 _votingWindow)
+        external
+        onlyRole(SETTER_ROLE)
+    {
+        votingWindow = _votingWindow;
+    }
+
+    function enterSplitMode(uint256 workTimeLimit) external {
+        require(msg.sender == splitter, "Only Splitter");
+        splitDeadline = block.timestamp + workTimeLimit;
     }
 
     function vote(address[] memory pools, int256[] memory weights)
@@ -330,6 +354,46 @@ contract NFTHolder is
 
     function unpause() external onlyRole(UNPAUSER_ROLE) {
         _unpause();
+    }
+
+    function optIn(address pool, address[] calldata tokens)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        IGauge(gaugeForPool[pool]).optIn(tokens);
+    }
+
+    function detachGauges(address[] memory gaugeAddresses) external {
+        require(msg.sender == splitter, "Not Splitter");
+
+        uint256 amount;
+        for (uint256 i = 0; i < gaugeAddresses.length; i++) {
+            // max withdraw is 1e16 token to avoid large asset transfer
+            amount = IGauge(gaugeAddresses[i]).balanceOf(address(this));
+            if (amount > 0) {
+                if (amount > 1e16) amount = 1e16;
+                IGauge(gaugeAddresses[i]).withdrawToken(amount, tokenID);
+                IGauge(gaugeAddresses[i]).deposit(amount, 0);
+            }
+        }
+    }
+
+    function reattachGauges(address[] memory gaugeAddresses) external {
+        require(msg.sender == splitter, "Not Splitter");
+
+        // when this function is called it means split is over
+        // so we can allow deposits sooner than splitDeadline
+        splitDeadline = 0;
+
+        uint256 amount = 1e16;
+        for (uint256 i = 0; i < gaugeAddresses.length; i++) {
+            amount = IGauge(gaugeAddresses[i]).balanceOf(address(this));
+            if (amount > 0) {
+                if (amount > 1e16) amount = 1e16;
+                IGauge(gaugeAddresses[i]).withdrawToken(amount, 0);
+                IGauge(gaugeAddresses[i]).deposit(amount, tokenID);
+            }
+        }
     }
 
     /* ========== INTERNAL FUNCTIONS ========== */

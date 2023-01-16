@@ -81,4 +81,30 @@ contract Migrator is
             revert AlreadyClaimed();
         }
     }
+
+    function claimMoSOLIDFor(
+        address account,
+        uint256 amount,
+        address receiver,
+        bytes32[] memory proof
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (
+            !MerkleProof.verify(
+                proof,
+                merkleRoot,
+                keccak256(abi.encode(account, amount))
+            )
+        ) revert InvalidProof();
+
+        uint256 claimableAmount = amount - claimedAmount[account];
+        if (claimableAmount > 0) {
+            claimedAmount[account] += claimableAmount;
+            totalClaimedAmount += claimableAmount;
+            moSOLID.safeTransfer(receiver, claimableAmount);
+
+            emit ClaimMoSOLID(account, amount, claimableAmount);
+        } else {
+            revert AlreadyClaimed();
+        }
+    }
 }

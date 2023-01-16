@@ -18,5 +18,7 @@ interface IGauge {
         view
         returns (uint256);
 
-    function tokenIds(address account) external view returns(uint256);
+    function tokenIds(address account) external view returns (uint256);
+
+    function optIn(address[] calldata tokens) external;
 }

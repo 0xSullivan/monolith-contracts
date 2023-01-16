@@ -58,7 +58,11 @@ contract MultiRewarder is
         address admin,
         address setter,
         address pauser
-    ) public {
+    ) public initializer {
+        __Pausable_init();
+        __ReentrancyGuard_init();
+        __AccessControlEnumerable_init();
+
         _grantRole(REWARDER_ROLE, NFTHolder);
 
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
