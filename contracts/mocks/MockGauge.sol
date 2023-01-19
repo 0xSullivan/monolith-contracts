@@ -7,6 +7,18 @@ import "../interfaces/IERC20.sol";
 contract MockGauge {
     uint256 public rewardAmount = 100e18;
 
+    address[] public rewards;
+
+    constructor(address[] memory _rewards) public {
+        rewards = _rewards;
+    }
+
+    function rewardsListLength() external returns (uint256) {
+        return rewards.length;
+    }
+
+    function optIn(address[] memory rewardTokens) external {}
+
     function setRewardAmount(uint256 _rewardAmount) external {
         rewardAmount = _rewardAmount;
     }

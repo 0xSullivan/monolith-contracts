@@ -201,6 +201,14 @@ contract MultiRewarder is
                 rewardData[pool][_rewardsToken]
                     .rewardsDuration = defaultRewardsDuration;
                 isRewardToken[pool][_rewardsToken] = true;
+            } else {
+                if (
+                    rewardData[pool][_rewardsToken].rewardsDuration !=
+                    defaultRewardsDuration
+                ) {
+                    rewardData[pool][_rewardsToken]
+                        .rewardsDuration = defaultRewardsDuration;
+                }
             }
 
             IERC20Upgradeable(_rewardsToken).safeTransferFrom(
@@ -249,6 +257,17 @@ contract MultiRewarder is
             _rewardsToken,
             rewardData[pool][_rewardsToken].rewardsDuration
         );
+    }
+
+    function setDefaultRewardsDuration(uint256 _defaultRewardsDuration)
+        external
+        onlyRole(SETTER_ROLE)
+    {
+        require(
+            _defaultRewardsDuration > 0,
+            "Reward duration must be non-zero"
+        );
+        defaultRewardsDuration = _defaultRewardsDuration;
     }
 
     function pause() external onlyRole(PAUSER_ROLE) {

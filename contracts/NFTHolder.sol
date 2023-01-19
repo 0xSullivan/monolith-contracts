@@ -97,6 +97,34 @@ contract NFTHolder is
         _grantRole(OPERATOR_ROLE, operator);
     }
 
+    /* ========== VIEW FUNCTIONS ========== */
+
+    function gaugeRewardTokens(address pool)
+        external
+        view
+        returns (
+            address[] memory rewardTokens,
+            bool[] memory isOptIn,
+            bool[] memory isWhitelisted
+        )
+    {
+        IGauge gauge = IGauge(solidlyVoter.gauges(pool));
+        if (address(gauge) != address(0)) {
+            uint256 rewardsLength = gauge.rewardsListLength();
+
+            rewardTokens = new address[](rewardsLength);
+            isOptIn = new bool[](rewardsLength);
+            isWhitelisted = new bool[](rewardsLength);
+
+            for (uint8 i = 0; i < rewardsLength; i++) {
+                address rewardToken = gauge.rewards(i);
+                rewardTokens[i] = rewardToken;
+                isOptIn[i] = gauge.isOptIn(address(this), rewardToken);
+                isWhitelisted[i] = isRewardToken[rewardToken];
+            }
+        }
+    }
+
     /* ========== MUTATIVE FUNCTIONS ========== */
 
     function onERC721Received(
@@ -128,11 +156,11 @@ contract NFTHolder is
      * @param pool Address of the pool token to deposit
      * @param amount Quantity of tokens to deposit
      */
-    function deposit(address pool, uint256 amount)
-        external
-        whenNotPaused
-        nonReentrant
-    {
+    function deposit(
+        address pool,
+        uint256 amount,
+        address[] calldata rewardTokens
+    ) external whenNotPaused nonReentrant {
         require(tokenID != 0, "Must lock SOLID first");
         require(amount > 0, "Cannot deposit zero");
         require(block.timestamp > splitDeadline, "Split is in action");
@@ -147,7 +175,14 @@ contract NFTHolder is
             gaugeForPool[pool] = gauge;
             tokenForPool[pool] = _deployDepositToken(pool);
             IERC20Upgradeable(pool).approve(gauge, type(uint256).max);
+
+            uint256 rewardsLength = IGauge(gauge).rewardsListLength();
+            if (rewardsLength > 0) {
+                _gaugeOptIn(gauge, rewardsLength);
+            }
         }
+
+        if (rewardTokens.length != 0) optIn(pool, rewardTokens);
 
         IERC20Upgradeable(pool).safeTransferFrom(
             msg.sender,
@@ -197,7 +232,7 @@ contract NFTHolder is
     }
 
     /// @notice Claims rewards from pool's gauge and deposit into multi rewarder after cutting platform share
-    function getReward(
+    function poke(
         address pool,
         address[] memory tokens,
         address bountyReceiver
@@ -245,6 +280,10 @@ contract NFTHolder is
         }
 
         multiRewarder.notifyRewardAmount(pool, tokens, rewards);
+    }
+
+    function optIn(address pool, address[] calldata tokens) public {
+        IGauge(gaugeForPool[pool]).optIn(tokens);
     }
 
     /* ========== RESTRICTED FUNCTIONS ========== */
@@ -356,13 +395,6 @@ contract NFTHolder is
         _unpause();
     }
 
-    function optIn(address pool, address[] calldata tokens)
-        external
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        IGauge(gaugeForPool[pool]).optIn(tokens);
-    }
-
     function detachGauges(address[] memory gaugeAddresses) external {
         require(msg.sender == splitter, "Not Splitter");
 
@@ -418,5 +450,14 @@ contract NFTHolder is
         }
         IDepositToken(token).initialize(pool);
         return token;
+    }
+
+    function _gaugeOptIn(address gauge, uint256 rewardsLength) internal {
+        IGauge gauge = IGauge(gauge);
+        address[] memory rewardTokens = new address[](rewardsLength);
+        for (uint8 i = 0; i < rewardsLength; i++) {
+            rewardTokens[i] = gauge.rewards(i);
+        }
+        gauge.optIn(rewardTokens);
     }
 }
