@@ -43,6 +43,8 @@ contract VeDepositor is
 
     ISplitter public splitter;
 
+    bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
+
     event ClaimedFromVeDistributor(address indexed user, uint256 amount);
     event Merged(address indexed user, uint256 tokenID, uint256 amount);
     event UnlockTimeUpdated(uint256 unlockTime);
@@ -194,7 +196,7 @@ contract VeDepositor is
     function claimRebase(address to)
         external
         whenNotPaused
-        onlyRole(DEFAULT_ADMIN_ROLE)
+        onlyRole(OPERATOR_ROLE)
         returns (bool)
     {
         veDistributor.claim(tokenID);
@@ -212,7 +214,7 @@ contract VeDepositor is
         return true;
     }
 
-    function updateMintDeadline() external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function updateMintDeadline() external onlyRole(OPERATOR_ROLE) {
         mintDeadline = (block.timestamp / WEEK) * WEEK + WEEK - mintMargin;
     }
 

@@ -72,6 +72,15 @@ contract NFTHolder is
         address indexed to,
         uint256 amount
     );
+    event Poke(
+        address caller,
+        address pool,
+        address token,
+        uint256 stakersShare,
+        uint256 callerShare,
+        uint256 platformShare,
+        address bountyReceiver
+    );
 
     /* ========== CONSTRUCTOR ========== */
 
@@ -253,7 +262,8 @@ contract NFTHolder is
                 reward -= callerCut;
 
                 platformCut = (reward * platformFee) / 1e18;
-                rewards[i] = reward - platformCut;
+                reward = reward - platformCut;
+                rewards[i] = reward;
 
                 IERC20Upgradeable(tokens[i]).safeTransfer(
                     bountyReceiver,
@@ -276,6 +286,16 @@ contract NFTHolder is
                         type(uint256).max
                     );
                 }
+
+                emit Poke(
+                    msg.sender,
+                    pool,
+                    tokens[i],
+                    reward,
+                    callerCut,
+                    platformCut,
+                    bountyReceiver
+                );
             }
         }
 
@@ -341,7 +361,7 @@ contract NFTHolder is
 
     function setRewardsFees(uint256 _callerFee, uint256 _platformFee)
         external
-        onlyRole(SETTER_ROLE)
+        onlyRole(OPERATOR_ROLE)
     {
         callerFee = _callerFee;
         platformFee = _platformFee;
@@ -349,7 +369,7 @@ contract NFTHolder is
 
     function setRewardTokens(address[] memory rewardTokens, bool status)
         external
-        onlyRole(SETTER_ROLE)
+        onlyRole(OPERATOR_ROLE)
     {
         for (uint8 i = 0; i < rewardTokens.length; i++) {
             isRewardToken[rewardTokens[i]] = status;
@@ -358,7 +378,7 @@ contract NFTHolder is
 
     function setVotingWindow(uint256 _votingWindow)
         external
-        onlyRole(SETTER_ROLE)
+        onlyRole(OPERATOR_ROLE)
     {
         votingWindow = _votingWindow;
     }
@@ -375,16 +395,39 @@ contract NFTHolder is
         solidlyVoter.vote(tokenID, pools, weights);
     }
 
+    function getRewards(
+        address[] memory rewarders,
+        address[][] memory tokens,
+        address to
+    ) external onlyRole(OPERATOR_ROLE) {
+        for (uint256 i; i < rewarders.length; i++) {
+            IBribe(rewarders[i]).getReward(tokenID, tokens[i]);
+            for (uint256 j; j < tokens[i].length; j++) {
+                IERC20Upgradeable(tokens[i][j]).safeTransfer(
+                    to,
+                    IERC20Upgradeable(tokens[i][j]).balanceOf(address(this))
+                );
+            }
+        }
+    }
+
     function withdrawERC20(
         address token,
         address to,
         uint256 amount
-    ) external onlyRole(OPERATOR_ROLE) {
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         IERC20Upgradeable(token).safeTransfer(to, amount);
     }
 
     function withdrawNFT(address to) external onlyRole(DEFAULT_ADMIN_ROLE) {
         votingEscrow.safeTransferFrom(address(this), to, tokenID);
+    }
+
+    function setApprovalForAll(address _operator, bool _approved)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        votingEscrow.setApprovalForAll(_operator, _approved);
     }
 
     function pause() external onlyRole(PAUSER_ROLE) {
@@ -393,6 +436,18 @@ contract NFTHolder is
 
     function unpause() external onlyRole(UNPAUSER_ROLE) {
         _unpause();
+    }
+
+    function optOut(
+        address pool,
+        address[] calldata tokens,
+        bool emergency
+    ) external onlyRole(OPERATOR_ROLE) {
+        if (emergency) {
+            IGauge(gaugeForPool[pool]).emergencyOptOut(tokens);
+        } else {
+            IGauge(gaugeForPool[pool]).optOut(tokens);
+        }
     }
 
     function detachGauges(address[] memory gaugeAddresses) external {

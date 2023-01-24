@@ -188,11 +188,11 @@ contract Splitter is
         );
 
         // Record user data
-        balanceOf[msg.sender] += splitAmount;
+        balanceOf[msg.sender] += burnAmount;
         lastBurnTimestamp[msg.sender] = block.timestamp;
 
         // Record global data
-        totalSplitRequested += splitAmount;
+        totalSplitRequested += burnAmount;
 
         emit RequestBurn(msg.sender, splitAmount);
     }
